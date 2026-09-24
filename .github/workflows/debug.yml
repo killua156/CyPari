@@ -1,0 +1,73 @@
+name: linux-debug
+on: [push, workflow_dispatch]
+jobs:
+  probe:
+    name: py${{ matrix.py }} cython${{ matrix.cython }} ${{ matrix.extra }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {py: "3.11", cython: "3.2.3", extra: ""}
+          - {py: "3.11", cython: "3.2.3", extra: "-U_FORTIFY_SOURCE"}
+          - {py: "3.14", cython: "3.2.3", extra: ""}
+          - {py: "3.14", cython: "3.0.11", extra: ""}
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: t
+          create-args: >-
+            python=${{ matrix.py }} pari=2.15.5 gmp c-compiler pip setuptools wheel
+            cython==${{ matrix.cython }}
+      - name: Compiler flags
+        run: echo "CFLAGS=$CFLAGS"; echo "CPPFLAGS=$CPPFLAGS"; $CC --version | head -1; micromamba list pari
+      - name: gp
+        run: echo 'pi()' | gp -q -f 2>&1 | cat -A || true
+      - name: C probe (shared libpari)
+        run: |
+          $CC $CFLAGS $CPPFLAGS ${{ matrix.extra }} debug/errtest.c -o errtest $LDFLAGS -lpari -lgmp -lpthread
+          ./errtest | cat -A
+      - name: C probe (static libpari, like setup.py)
+        run: |
+          $CC $CFLAGS $CPPFLAGS ${{ matrix.extra }} debug/errtest.c -o errtest_s $CONDA_PREFIX/lib/libpari.a $LDFLAGS -lgmp -lpthread
+          ./errtest_s | cat -A
+      - name: Build cypari
+        run: |
+          patch -p1 < debug/0001-link-shared-gmp.patch
+          mkdir -p libcache
+          ln -sf "$CONDA_PREFIX" libcache/pari
+          ln -sf "$CONDA_PREFIX" libcache/gmp
+          export CFLAGS="$CFLAGS ${{ matrix.extra }}"
+          python -m pip install . -v --no-deps --no-build-isolation 2>&1 | tail -30
+      - name: errtext
+        run: |
+          cd /tmp
+          python - <<'PY'
+          import ctypes, cypari
+          from cypari import pari
+          from cypari._pari import PariError
+          try:
+              pari('pi()')
+          except PariError as e:
+              print("errtext:", repr(e.errtext()), "args:", e.args[:2])
+          lib = ctypes.CDLL(cypari._pari.__file__)
+          try:
+              lib.pari_strdup.restype = ctypes.c_char_p
+              print("pari_strdup via ctypes:", lib.pari_strdup(b"not a function in function call"))
+          except AttributeError as err:
+              print("no symbol:", err)
+          PY
+          echo "exit=$?"
+      - name: test suite
+        run: |
+          cd /tmp
+          python -m cypari.test 2>&1 | tail -25
+          echo "exit=${PIPESTATUS[0]}"
+      - name: import only, exit code
+        run: |
+          cd /tmp
+          python -c "import cypari; print(cypari.pari('2^100'))"; echo "exit=$?"
