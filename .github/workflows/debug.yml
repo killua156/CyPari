@@ -42,7 +42,7 @@ jobs:
           ./errtest | cat -A
       - name: C probe (static libpari, like setup.py)
         run: |
-          $CC $CFLAGS $CPPFLAGS ${{ matrix.extra }} debug/errtest.c -o errtest_s $CONDA_PREFIX/lib/libpari.a $LDFLAGS -lgmp -lpthread
+          $CC $CFLAGS $CPPFLAGS ${{ matrix.extra }} debug/errtest.c -o errtest_s $CONDA_PREFIX/lib/libpari.a $LDFLAGS -lgmp -lpthread -lm
           ./errtest_s | cat -A
       - name: Build cypari
         run: |
