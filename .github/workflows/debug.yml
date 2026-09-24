@@ -12,6 +12,8 @@ jobs:
           - {py: "3.11", cython: "3.2.3", extra: "-U_FORTIFY_SOURCE"}
           - {py: "3.14", cython: "3.2.3", extra: ""}
           - {py: "3.14", cython: "3.0.11", extra: ""}
+    env:
+      CC: x86_64-conda-linux-gnu-cc
     defaults:
       run:
         shell: bash -el {0}
@@ -21,8 +23,15 @@ jobs:
         with:
           environment-name: t
           create-args: >-
-            python=${{ matrix.py }} pari=2.15.5 gmp c-compiler pip setuptools wheel
+            python=${{ matrix.py }} pari=2.15.5 gmp gcc_linux-64 sysroot_linux-64 pip setuptools wheel
             cython==${{ matrix.cython }}
+      - name: Conda-build default flags
+        run: |
+          if [ -z "$CPPFLAGS" ]; then
+            echo "CFLAGS=-march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem $CONDA_PREFIX/include" >> $GITHUB_ENV
+            echo "CPPFLAGS=-DNDEBUG -D_FORTIFY_SOURCE=2 -O2 -isystem $CONDA_PREFIX/include" >> $GITHUB_ENV
+            echo "LDFLAGS=-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,$CONDA_PREFIX/lib -Wl,-rpath-link,$CONDA_PREFIX/lib -L$CONDA_PREFIX/lib" >> $GITHUB_ENV
+          fi
       - name: Compiler flags
         run: echo "CFLAGS=$CFLAGS"; echo "CPPFLAGS=$CPPFLAGS"; $CC --version | head -1; micromamba list pari
       - name: gp
