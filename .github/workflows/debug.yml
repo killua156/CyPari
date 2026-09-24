@@ -2,16 +2,16 @@ name: linux-debug
 on: [push, workflow_dispatch]
 jobs:
   probe:
-    name: py${{ matrix.py }} cython${{ matrix.cython }} ${{ matrix.extra }}
+    name: ${{ matrix.ref }} py${{ matrix.py }} cython${{ matrix.cython }} ${{ matrix.extra }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {py: "3.11", cython: "3.2.3", extra: ""}
-          - {py: "3.11", cython: "3.2.3", extra: "-U_FORTIFY_SOURCE"}
-          - {py: "3.14", cython: "3.2.3", extra: ""}
-          - {py: "3.14", cython: "3.0.11", extra: ""}
+          - {ref: "2.5.6_as_released", py: "3.11", cython: "3.0.11", extra: ""}
+          - {ref: "2.5.6_as_released", py: "3.11", cython: "3.0.11", extra: "-U_FORTIFY_SOURCE"}
+          - {ref: "2.5.6_as_released", py: "3.11", cython: "3.2.3", extra: ""}
+          - {ref: "master", py: "3.11", cython: "3.0.11", extra: ""}
     env:
       CC: x86_64-conda-linux-gnu-cc
     defaults:
@@ -19,6 +19,13 @@ jobs:
         shell: bash -el {0}
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: dbg
+      - uses: actions/checkout@v4
+        with:
+          repository: 3-manifolds/CyPari
+          ref: ${{ matrix.ref }}
+          path: src
       - uses: mamba-org/setup-micromamba@v2
         with:
           environment-name: t
@@ -38,15 +45,18 @@ jobs:
         run: echo 'pi()' | gp -q -f 2>&1 | cat -A || true
       - name: C probe (shared libpari)
         run: |
-          $CC $CFLAGS $CPPFLAGS ${{ matrix.extra }} debug/errtest.c -o errtest $LDFLAGS -lpari -lgmp -lpthread
+          $CC $CFLAGS $CPPFLAGS ${{ matrix.extra }} dbg/debug/errtest.c -o errtest $LDFLAGS -lpari -lgmp -lpthread
           ./errtest | cat -A
       - name: C probe (static libpari, like setup.py)
         run: |
-          $CC $CFLAGS $CPPFLAGS ${{ matrix.extra }} debug/errtest.c -o errtest_s $CONDA_PREFIX/lib/libpari.a $LDFLAGS -lgmp -lpthread -lm
+          $CC $CFLAGS $CPPFLAGS ${{ matrix.extra }} dbg/debug/errtest.c -o errtest_s $CONDA_PREFIX/lib/libpari.a $LDFLAGS -lgmp -lpthread -lm
           ./errtest_s | cat -A
       - name: Build cypari
         run: |
-          patch -p1 < debug/0001-link-shared-gmp.patch
+          cd src
+          sed -i '1s/^cython:/# cython:/' cypari/_pari.pyx
+          head -1 cypari/_pari.pyx
+          patch -p1 < ../dbg/debug/0001-link-shared-gmp.patch
           mkdir -p libcache
           ln -sf "$CONDA_PREFIX" libcache/pari
           ln -sf "$CONDA_PREFIX" libcache/gmp
